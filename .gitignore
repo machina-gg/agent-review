@@ -1,0 +1,5 @@
+# エージェントの作業ツリー（コミット対象外）
+.claude/worktrees/
+
+# 依存パッケージ
+node_modules/
