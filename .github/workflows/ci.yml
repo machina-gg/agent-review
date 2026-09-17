@@ -24,11 +24,12 @@ jobs:
       - uses: actions/checkout@v4
 
       # shellcheck は ubuntu-latest ランナーにプリインストールされている。
+      # ⚠ 対象はディレクトリの列挙ではなく拡張子で決める（ファイルが増えても追随が要らない）。
       - name: Script Check (shellcheck)
         run: |
           shellcheck --version
-          if ! shellcheck scripts/*.sh tests/*.sh; then
-            echo "::error title=Script Check::shellcheck が問題を検出しました。手元で \"shellcheck scripts/*.sh tests/*.sh\" を実行して解消してください。"
+          if ! git ls-files '*.sh' | xargs shellcheck; then
+            echo "::error title=Script Check::shellcheck が問題を検出しました。手元で \"git ls-files '*.sh' | xargs shellcheck\" を実行して解消してください。"
             exit 1
           fi
           echo "=== shellcheck OK ==="

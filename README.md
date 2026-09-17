@@ -139,7 +139,7 @@ git -C .agent-review diff --quiet HEAD -- .
 ## ローカルでの検査
 
 ```bash
-shellcheck scripts/*.sh tests/*.sh
+git ls-files '*.sh' | xargs shellcheck
 bash tests/approve-if-verdict.test.sh
 npx prettier@3 --check .
 ```
