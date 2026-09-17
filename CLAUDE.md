@@ -41,10 +41,4 @@
 
 ## 検査
 
-PR ごとに CI（job 名 `check`）が走る。手元では次を実行する。
-
-```bash
-git ls-files '*.sh' | xargs shellcheck
-bash tests/approve-if-verdict.test.sh
-npx prettier@3 --check .
-```
+PR ごとに CI（job 名 `check`）が走る。手元で実行するコマンドは [`README.md`](README.md)「ローカルでの検査」が SSOT（ここに再掲しない）。

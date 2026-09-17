@@ -67,6 +67,9 @@ jobs:
           repository: machina-gg/agent-review
           ref: main
           path: .agent-review
+          # public リポジトリの読み取り専用 checkout で以後の git 操作も無いため、
+          # GITHUB_TOKEN を .agent-review/.git/config に残さない
+          persist-credentials: false
 
       # profile の値をシェルにも prompt にも素通しさせない。カンマで分割し、ファイル名として
       # 安全な文字集合だけを通す（外れたら run を失敗させる = fail-close）。
@@ -178,6 +181,8 @@ jobs:
       # 判定は標準出力の最後の行のラベルで読む（スクリプト冒頭のコメント）。
       # ⚠ Claude には Write を許しているため、Approve を押すスクリプトと観点を実行前に書き換えられる。
       #   checkout 時点から変わっていたら Approve を押さずに run を失敗させる（fail-close）。
+      #   `git diff` は追跡ファイルの変更しか見ないため、`status --porcelain` で未追跡ファイルの
+      #   追加も検知対象にする（`--untracked-files=all` で新規ディレクトリの中身も列挙する）。
       - name: Approve if verdict is APPROVE
         if: steps.prep.outputs.has_token == 'true' && steps.claude.outcome == 'success'
         env:
@@ -186,10 +191,11 @@ jobs:
           SINCE: ${{ steps.prep.outputs.since }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
-          if ! git -C .agent-review diff --quiet HEAD -- .; then
-            echo "::error title=Agent Review::.agent-review/ が checkout 時点から変更されています（Claude の実行後）。Approve を押さずに止めます"
-            git -C .agent-review status --short
+          TAMPER_STATUS="$(git -C .agent-review status --porcelain --untracked-files=all)"
+          if [ -n "$TAMPER_STATUS" ]; then
+            echo "::error title=Agent Review::.agent-review/ が checkout 時点から変更されています（Claude の実行後・追跡ファイルの変更または未追跡ファイルの追加）。Approve を押さずに止めます"
+            echo "$TAMPER_STATUS"
             exit 1
           fi
-          echo "=== .agent-review/ は checkout 時点から変更なし ==="
+          echo "=== .agent-review/ は checkout 時点から変更なし（追跡ファイルの変更・未追跡ファイルの追加とも無し） ==="
           bash .agent-review/scripts/approve-if-verdict.sh "$PR_NUMBER" "$SINCE" "$HEAD_SHA"

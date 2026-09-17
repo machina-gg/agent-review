@@ -39,6 +39,9 @@ jobs:
 
 - **`on` は `pull_request` であること。** ジョブの実行可否（draft を除外する等）は
   `github.event.pull_request` を見て決めるため、他のイベントでは動かない
+- `types` に `labeled` / `unlabeled` / `edited` は含めない（ラベル操作や本文編集で Claude を
+  再走させない。`synchronize`（push）で再走すれば十分で、レビューの必須 Approve は
+  ブランチルールセットの `dismiss_stale_reviews_on_push` で push ごとに再取得される）
 - `with.profile` は**省略できる**（省略時は `perspectives/common.md` だけを読む）。
   カンマ区切りで複数指定できる（例: `profile: harness,chrome-extension`）
 - `secrets.CLAUDE_CODE_OAUTH_TOKEN` は**必須**（呼び出し元が明示的に渡す）。
@@ -103,10 +106,11 @@ repository secret に登録する（リポジトリ管理者の作業）。
 Claude を走らせる。Claude には `Write` を許しているため、Approve を押す前に
 
 ```
-git -C .agent-review diff --quiet HEAD -- .
+git -C .agent-review status --porcelain --untracked-files=all
 ```
 
-で checkout 時点から変わっていないことを検査し、**変わっていれば Approve を押さずに run を失敗させる**（fail-close）。
+で**追跡ファイルの変更と未追跡ファイルの追加を検査し**、出力があれば Approve を押さずに run を失敗させる（fail-close）。
+Claude に `Write` を許しているため、新規ファイルの追加も検査対象にする（`git diff` は未追跡ファイルを見ない）。
 
 ⚠ **checkout の ref は `main` 固定**。呼び出し元の PR が観点や Approve スクリプトを差し替えてから
 自分をレビューさせる経路を作らないため、PR で `perspectives/` を変更しても、その PR 自身のレビューには反映されない
@@ -137,6 +141,8 @@ git -C .agent-review diff --quiet HEAD -- .
 | `perspectives/`                       | レビュー観点（`common.md` + プロファイル）            |
 
 ## ローカルでの検査
+
+SSOT は本節。`CLAUDE.md` の「検査」節からはここを参照する（同じコマンドを 2 箇所に書かない）。
 
 ```bash
 git ls-files '*.sh' | xargs shellcheck
