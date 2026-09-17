@@ -1,0 +1,49 @@
+name: CI
+
+# このリポジトリ自身の検査。PR ごとに走る。
+# ⚠ job 名 `check` はブランチルールセットの必須チェックの context 名になる。変更すると
+#   必須チェックが「存在しないチェック」を待ち続け、全 PR が止まる。
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # shellcheck は ubuntu-latest ランナーにプリインストールされている。
+      # ⚠ 対象はディレクトリの列挙ではなく拡張子で決める（ファイルが増えても追随が要らない）。
+      - name: Script Check (shellcheck)
+        run: |
+          shellcheck --version
+          if ! git ls-files '*.sh' | xargs shellcheck; then
+            echo "::error title=Script Check::shellcheck が問題を検出しました。手元で \"git ls-files '*.sh' | xargs shellcheck\" を実行して解消してください。"
+            exit 1
+          fi
+          echo "=== shellcheck OK ==="
+
+      # gh をスタブに差し替えて走る（ネットワーク・トークン不要）。
+      - name: Script Check (regression tests)
+        if: ${{ !cancelled() }}
+        run: bash tests/approve-if-verdict.test.sh
+
+      - name: Format Check
+        if: ${{ !cancelled() }}
+        run: |
+          if ! npx prettier@3 --check .; then
+            echo "::error title=Format Check::Prettier の整形に違反があります。'npx prettier@3 --write .' を実行して差分をコミットしてください。"
+            exit 1
+          fi
+          echo "=== Format Check OK ==="
