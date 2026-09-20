@@ -21,7 +21,7 @@ jobs:
     name: check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # shellcheck は ubuntu-latest ランナーにプリインストールされている。
       # ⚠ 対象はディレクトリの列挙ではなく拡張子で決める（ファイルが増えても追随が要らない）。

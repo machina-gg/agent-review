@@ -54,7 +54,7 @@ jobs:
       issues: write
     steps:
       # 呼び出し元リポジトリ（レビュー対象）。fetch-depth: 0 は差分・履歴を読ませるため。
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -62,7 +62,7 @@ jobs:
       # ⚠ ref は main 固定。呼び出し元の PR が観点や Approve スクリプトを差し替える経路を作らない
       #   （agent-review 自身の PR をレビューするときも、観点は main のものが使われる）。
       - name: Checkout agent-review
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: machina-gg/agent-review
           ref: main
