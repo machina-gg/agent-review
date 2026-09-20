@@ -67,6 +67,24 @@ CHECK_ENV=("PR_BODY=Refs #5, Closes #6" "LABELS_JSON=${LABELS_NONE}" "OVERRIDE_L
 run_check
 assert_equals "$STATUS" "0" "1 行に複数の紐づけがあっても受理する"
 
+CHECK_ENV=("PR_BODY=(closes #7)" "LABELS_JSON=${LABELS_NONE}" "OVERRIDE_LABEL=override:no-issue")
+run_check
+assert_equals "$STATUS" "0" "括弧の直後でも受理する（左の境界は英字以外なら通す）"
+
+CHECK_ENV=("PR_BODY=**Closes #12**" "LABELS_JSON=${LABELS_NONE}" "OVERRIDE_LABEL=override:no-issue")
+run_check
+assert_equals "$STATUS" "0" "Markdown の装飾が付いていても受理する"
+
+CHECK_ENV=("PR_BODY=Refs #123の続き" "LABELS_JSON=${LABELS_NONE}" "OVERRIDE_LABEL=override:no-issue")
+run_check
+assert_equals "$STATUS" "0" "番号の直後に日本語が続く形も受理する（右側に境界を置かない）"
+
+# ⚠ 右側に境界を置かない選択の裏返し。置けば弾けるが、上の「番号の直後に日本語」が通らなくなる
+#   （UTF-8 ロケールでは日本語が [[:alnum:]] に入る）ため、受理する側を選んでいる。
+CHECK_ENV=("PR_BODY=Closes #12abc" "LABELS_JSON=${LABELS_NONE}" "OVERRIDE_LABEL=override:no-issue")
+run_check
+assert_equals "$STATUS" "0" "番号の直後に英字が続く形も受理する（右側に境界を置かない選択）"
+
 # ------------------------------------------------------------------
 # 2. 本文が受理されない形
 # ------------------------------------------------------------------
@@ -92,6 +110,35 @@ assert_equals "$STATUS" "1" "番号が数値でない形は受理しない"
 CHECK_ENV=("PR_BODY=Refsx #5" "LABELS_JSON=${LABELS_NONE}" "OVERRIDE_LABEL=override:no-issue")
 run_check
 assert_equals "$STATUS" "1" "語の直後に文字が続く形は受理しない"
+
+# ------------------------------------------------------------------
+# 2-2. 英単語の末尾への部分一致（⚠ 左の境界が落ちると素通りする）
+# ------------------------------------------------------------------
+
+# ⚠ ここが通ると、Issue と無関係な本文が脚注番号などの #数字 だけで検査を通過する
+#   （override ラベル無しで、誰の意図もなく必須チェックが無効化される）。
+for word in prefixes suffixes postfixes; do
+  CHECK_ENV=("PR_BODY=${word} #3 are supported" "LABELS_JSON=${LABELS_NONE}" "OVERRIDE_LABEL=override:no-issue")
+  run_check
+  assert_equals "$STATUS" "1" "${word} #3 は紐づけとして受理しない（fixes への部分一致）"
+done
+
+for word in encloses discloses; do
+  CHECK_ENV=("PR_BODY=PR ${word} #5 for context" "LABELS_JSON=${LABELS_NONE}" "OVERRIDE_LABEL=override:no-issue")
+  run_check
+  assert_equals "$STATUS" "1" "${word} #5 は紐づけとして受理しない（closes への部分一致）"
+done
+
+# 左の境界が「行頭」でも効くこと（^ 側の分岐）
+CHECK_ENV=("PR_BODY=Closes #1
+以降は本文。" "LABELS_JSON=${LABELS_NONE}" "OVERRIDE_LABEL=override:no-issue")
+run_check
+assert_equals "$STATUS" "0" "本文の 1 行目の行頭から始まる Closes #1 を受理する"
+
+CHECK_ENV=("PR_BODY=## 概要
+prefixes #3 を説明する行" "LABELS_JSON=${LABELS_NONE}" "OVERRIDE_LABEL=override:no-issue")
+run_check
+assert_equals "$STATUS" "1" "行頭の部分一致（prefixes #3）も受理しない"
 
 # ------------------------------------------------------------------
 # 3. override ラベル（要素の完全一致でだけスキップする）

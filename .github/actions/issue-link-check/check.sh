@@ -27,7 +27,12 @@ set -euo pipefail
 # 受理する Issue 紐づけの形。
 # ⚠ `refs` を必ず含める（シリーズ作業の途中 PR は Issue を閉じないため Refs #N で紐づける）。
 # ⚠ 空白は POSIX 文字クラスで書く（`\s` は POSIX ERE には無い GNU 拡張で、環境によって解釈が変わる）。
-ISSUE_LINK_PATTERN='(closes|fixes|resolves|refs)[[:space:]]+#[0-9]+'
+# ⚠ 左側の境界 `(^|[^[:alpha:]])` を落とさない。無いと prefixes / suffixes / encloses のような
+#   英単語の末尾にキーワードが部分一致し、その直後に脚注番号などの #数字 が来るだけで検査を通過する。
+# ⚠ 右側（#数字 の後ろ）には境界を置かない。置くと `Refs #123の続き` のように
+#   数字の直後に日本語が続く本文が通らなくなる（UTF-8 ロケールでは日本語が [[:alnum:]] に入るため）。
+#   代償として `Closes #12abc` のような形も受理する。
+ISSUE_LINK_PATTERN='(^|[^[:alpha:]])(closes|fixes|resolves|refs)[[:space:]]+#[0-9]+'
 
 # jq の有無をログに残す（ラベルの完全一致検査に要る。無ければここで落として原因を見せる）
 if ! jq --version; then
