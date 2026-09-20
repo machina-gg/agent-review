@@ -12,6 +12,8 @@
 #                  （既定値を 2 箇所に置くと片方だけずれる）
 #
 # 判定の順序（上から評価し、最初に当たったところで止まる）:
+#   0. jq の有無をログに残す。⚠ **ここでは判定しない**（jq が要るのは 2. のラベル検査だけなので、
+#      jq が無いことを理由に 1. で決まる大半のケースを落とさない）
 #   1. PR 本文に「受理する語 + 空白 + #番号」があれば OK（大文字小文字を区別しない）
 #   2. LABELS_JSON に OVERRIDE_LABEL と**完全一致する要素**があればスキップ
 #      （⚠ 部分一致にしない。前後に語を足しただけの似た名前のラベルでスキップできてしまう）
@@ -34,10 +36,12 @@ set -euo pipefail
 #   代償として `Closes #12abc` のような形も受理する。
 ISSUE_LINK_PATTERN='(^|[^[:alpha:]])(closes|fixes|resolves|refs)[[:space:]]+#[0-9]+'
 
-# jq の有無をログに残す（ラベルの完全一致検査に要る。無ければここで落として原因を見せる）
+# jq の有無をログに残す（ランナーに同梱されているかをここで可視化する）。
+# ⚠ 無くてもここでは落とさない。jq が要るのはラベルの完全一致検査だけで、
+#   本文に紐づけがあるケースの判定には関係しないため（無い場合はスキップ側を諦める = fail-close）。
+JQ_AVAILABLE=true
 if ! jq --version; then
-  echo "::error title=Issue Check::jq が見つかりません（ラベルの完全一致検査に必要です）。"
-  exit 1
+  JQ_AVAILABLE=false
 fi
 
 # ------------------------------------------------------------------
@@ -59,7 +63,9 @@ fi
 # 2. override ラベルの検査（要素の完全一致）
 # ------------------------------------------------------------------
 
-if [[ -z "${OVERRIDE_LABEL:-}" ]]; then
+if [[ "$JQ_AVAILABLE" != "true" ]]; then
+  echo "::warning title=Issue Check::jq が見つからないため、ラベルによるスキップは行いません（要素の完全一致を検査できないため）。"
+elif [[ -z "${OVERRIDE_LABEL:-}" ]]; then
   echo "::warning title=Issue Check::override-label が空のため、ラベルによるスキップは行いません。"
 elif [[ -z "${LABELS_JSON+x}" ]]; then
   echo "::warning title=Issue Check::環境変数 LABELS_JSON が未設定のため、ラベルによるスキップは行いません（action の inputs.labels-json を渡してください）。"

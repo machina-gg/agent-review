@@ -30,11 +30,28 @@ echo "== agent-review (issue-link-check/check.sh) =="
 # 渡す環境変数を CHECK_ENV に積んでから run_check を呼ぶ（1 回ごとに空に戻る）。
 # ⚠ 積まなかった変数は「未設定」として渡る（空文字との違いを検査するため）。
 CHECK_ENV=()
+# ⚠ bash は絶対パスで起動する（PATH を差し替えるケースがあり、env が bash 自体を
+#   見つけられなくなるため）
+BASH_BIN="$(command -v bash)"
 run_check() {
-  OUT="$(env ${CHECK_ENV[@]+"${CHECK_ENV[@]}"} bash "$SCRIPT" 2>&1)"
+  OUT="$(env ${CHECK_ENV[@]+"${CHECK_ENV[@]}"} "$BASH_BIN" "$SCRIPT" 2>&1)"
   STATUS=$?
   CHECK_ENV=()
 }
+
+# jq を取り除いた PATH を作る（grep は check.sh が使うので残す）
+if ! TMP="$(mktemp -d "${TMPDIR:-/tmp}/issue-link-check-test.XXXXXXXX")"; then
+  echo "エラー: mktemp -d に失敗しました。テストを中断します。" >&2
+  exit 5
+fi
+if [[ -z "$TMP" || ! -d "$TMP" || "$TMP" == "$PWD" ]]; then
+  echo "エラー: mktemp -d の戻り値が不正です（TMP=[$TMP]）。テストを中断します。" >&2
+  exit 5
+fi
+trap 'rm -rf "$TMP"' EXIT
+mkdir -p "${TMP}/nojq-bin"
+ln -s "$(command -v grep)" "${TMP}/nojq-bin/grep"
+NOJQ_PATH="${TMP}/nojq-bin"
 
 LABELS_NONE='[]'
 LABELS_OVERRIDE='["bug","override:no-issue"]'
@@ -227,6 +244,17 @@ assert_contains "$OUT" "PR_BODY が未設定" "PR_BODY 未設定の理由を出�
 CHECK_ENV=("PR_BODY=Closes #5" "LABELS_JSON=${LABELS_NONE}" "OVERRIDE_LABEL=override:no-issue")
 run_check
 assert_contains "$OUT" "jq-" "jq のバージョンをログに残す（ランナーでの有無を可視化する）"
+
+# ⚠ jq が要るのはラベル検査だけ。jq の有無で本文検査の結論を変えない
+#   （冒頭で落としていると、正しい Closes #N があっても常に exit 1 になる）。
+CHECK_ENV=("PATH=${NOJQ_PATH}" "PR_BODY=Closes #5" "LABELS_JSON=${LABELS_NONE}" "OVERRIDE_LABEL=override:no-issue")
+run_check
+assert_equals "$STATUS" "0" "jq が無くても本文に紐づけがあれば OK（jq はラベル検査でしか使わない）"
+
+CHECK_ENV=("PATH=${NOJQ_PATH}" "PR_BODY=${NO_LINK}" "LABELS_JSON=${LABELS_OVERRIDE}" "OVERRIDE_LABEL=override:no-issue")
+run_check
+assert_equals "$STATUS" "1" "jq が無いときはラベルによるスキップを行わない（fail-close）"
+assert_contains "$OUT" "jq が見つからないため" "jq が無くてラベル検査を諦めたことを警告に出す"
 
 ACTION_YML="$(cat "${ACTION_DIR}/action.yml")"
 assert_contains "$ACTION_YML" "check.sh" "action.yml は check.sh を呼ぶ"

@@ -178,7 +178,8 @@ composite action。どれも無く、override ラベルも付いていなけれ�
   `action.yml` にロジックを書かない（インラインの `run:` は単体テストできない）
 - **`jq` を使う。** ランナーに入っているかは
   [actions/runner-images の Ubuntu readme](https://github.com/actions/runner-images/blob/main/images/ubuntu/Ubuntu2404-Readme.md)
-  の Installed Software で測る。`check.sh` は冒頭で `jq --version` をログに出すので、実際のランナーでの有無は run のログで分かる
+  の Installed Software で測る。`check.sh` は冒頭で `jq --version` をログに出すので、実際のランナーでの有無は run のログで分かる。
+  ⚠ **`jq` が無くても本文の検査は動く**（`jq` を使うのはラベル検査だけ）。無い場合は**ラベルによるスキップだけを諦める**（fail-close）
 - 呼び出し元の `on.pull_request.types` に `edited`（本文の修正）と `labeled` / `unlabeled`（ラベルの付け外し）が
   無いと、本文やラベルを直しても再走しない
 
