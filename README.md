@@ -1,12 +1,30 @@
 # agent-review
 
-GitHub Actions 上の Claude が Pull Request をレビューし、判定行が `判定: APPROVE` のときだけ
-`github-actions[bot]` が Approve を押す **reusable workflow** と、その**レビュー観点**を置く共有リポジトリ。
+**複数のリポジトリで共有する CI 資産**を置くリポジトリ。実体はここ 1 箇所にあり、
+呼び出し元は `@main` 参照で使う（コピーしない）。
 
-複数のリポジトリが同じ観点・同じ判定の契約でレビューを受けられるようにするためのもので、
-観点と Approve スクリプトの実体はここ 1 箇所にある。
+- **エージェントレビュー** — GitHub Actions 上の Claude が Pull Request をレビューし、
+  判定行が `判定: APPROVE` のときだけ `github-actions[bot]` が Approve を押す reusable workflow と、
+  その**レビュー観点**（本 README の「エージェントレビューの呼び方」以降）
+- **Issue 紐づけ検査** — PR 本文に `Closes #N` 等があるかを検査する composite action
+  （本 README の「Issue 紐づけ検査」）
 
-## 呼び方
+## 置き場の規約
+
+| 種類              | 置き場                         | 呼び出し方                                                   |
+| ----------------- | ------------------------------ | ------------------------------------------------------------ |
+| reusable workflow | `.github/workflows/<name>.yml` | job の `uses:`（⚠ step からは呼べない）                      |
+| composite action  | `.github/actions/<name>/`      | step の `uses:`（呼び出し元の job 構成を変えずに差し込める） |
+| レビュー観点      | `perspectives/<name>.md`       | reusable workflow の `profile`                               |
+
+- ⚠ **public リポジトリである。** 秘匿情報（トークン・個人のローカルパス・個人のメールアドレス）や、
+  非公開にしたいロジック・運用の内情は**置けない**（書き方の詳細は [`CLAUDE.md`](CLAUDE.md)）
+- **消費者が 1 リポジトリしかないものは置かない。** 共有する相手が実在してから寄せる
+  （1 リポジトリでしか使わないものをここに置くと、変更のたびに 2 リポジトリを往復することになる）
+- ⚠ ここへ寄せたものは `@main` 参照で**呼び出し元すべてに即時反映される**。
+  1 リポジトリの都合で共通の挙動を曲げない
+
+## エージェントレビューの呼び方
 
 呼び出し元リポジトリに次のワークフローを置く。
 
@@ -123,22 +141,66 @@ Claude に `Write` を許しているため、新規ファイルの追加も検�
 - **呼び出し元の PR が自分の workflow 定義を変えて自己 Approve できる**（`pull_request` は PR 側の定義を実行するため）。
   `.yml` を変更する PR を人間がマージする運用で守る
 
+## Issue 紐づけ検査
+
+PR 本文に Issue 紐づけ（`Closes #N` / `Fixes #N` / `Resolves #N` / `Refs #N`）があるかを検査する
+composite action。どれも無く、override ラベルも付いていなければ `::error::` を出して job を失敗させる。
+
+呼び出し元の job に次のステップを足す（job を増やさずに差し込めるので、必須チェックの context 名は変わらない）。
+
+```yaml
+- name: Issue Check
+  uses: machina-gg/agent-review/.github/actions/issue-link-check@main
+  with:
+    pr-body: ${{ github.event.pull_request.body }}
+    labels-json: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+    # override-label: override:no-issue  # 既定値。別名にするときだけ書く
+```
+
+| input            | 必須 | 何を渡すか                                                                                 |
+| ---------------- | ---- | ------------------------------------------------------------------------------------------ |
+| `pr-body`        | ✓    | `github.event.pull_request.body`                                                           |
+| `labels-json`    | ✓    | `toJSON(github.event.pull_request.labels.*.name)`（⚠ JSON 配列。カンマ連結の文字列は不可） |
+| `override-label` |      | 検査をスキップするラベル名（既定 `override:no-issue`）                                     |
+
+- **`Refs #N` も受理する**（Issue を閉じないシリーズ途中の PR のため）
+- **キーワードの直前は行頭か、英字以外の文字であること。** `prefixes #3` / `encloses #5` のように
+  英単語の末尾へ部分一致した形は受理しない（受理すると、脚注番号などの `#数字` だけで検査を通過できてしまう）。
+  ⚠ **この境界の代償**として、`対応はFixes #3` のように**日本語が直接続く形は受理しない**
+  （UTF-8 ロケールでは日本語が `[[:alpha:]]` に入る）。キーワードの前に空白を置くこと
+- **番号の直後には境界を置かない。** `Refs #123の続き` のように日本語が続く形を受理するためで、
+  代償として `Closes #12abc` のような形も受理する
+- **スキップはラベル名の完全一致でだけ効く。** 前後に語を足しただけの似た名前のラベルではスキップしない
+  （⚠ ラベル名をカンマ連結した文字列への部分一致にしないこと。`jq` の比較なので**大文字小文字も区別する**）
+- **入力を解釈できないときはスキップしない**（fail-close）。`labels-json` が JSON 配列として読めなければ
+  警告を出したうえで検査を実行する
+- 判定の実体は [`.github/actions/issue-link-check/check.sh`](.github/actions/issue-link-check/check.sh) にある。
+  `action.yml` にロジックを書かない（インラインの `run:` は単体テストできない）
+- **`jq` を使う。** ランナーに入っているかは
+  [actions/runner-images の Ubuntu readme](https://github.com/actions/runner-images/blob/main/images/ubuntu/Ubuntu2404-Readme.md)
+  の Installed Software で測る。`check.sh` は冒頭で `jq --version` をログに出すので、実際のランナーでの有無は run のログで分かる。
+  ⚠ **`jq` が無くても本文の検査は動く**（`jq` を使うのはラベル検査だけ）。無い場合は**ラベルによるスキップだけを諦める**（fail-close）
+- 呼び出し元の `on.pull_request.types` に `edited`（本文の修正）と `labeled` / `unlabeled`（ラベルの付け外し）が
+  無いと、本文やラベルを直しても再走しない
+
 ## このリポジトリを変更するとき
 
-- **public リポジトリである。** 秘密・内部事情（トークン・個人のローカルパス・非公開の運用詳細）を書かない
-- `scripts/` と `.github/workflows/` の変更は、**レビューを人間が確認したうえで人間がマージする**
+- **public リポジトリである**ことの制約は上記「置き場の規約」を参照
+- 呼び出し元の CI の中で走るもの（`.github/workflows/` / `.github/actions/` / `scripts/`）の変更は、
+  **レビューを人間が確認したうえで人間がマージする**
 - 詳細は [`CLAUDE.md`](CLAUDE.md)
 
 ## ディレクトリ構成
 
-| パス                                  | 役割                                                  |
-| ------------------------------------- | ----------------------------------------------------- |
-| `.github/workflows/review.yml`        | reusable workflow（本体）                             |
-| `.github/workflows/claude-review.yml` | このリポジトリ自身の PR をレビューする呼び出し元      |
-| `.github/workflows/ci.yml`            | このリポジトリ自身の CI（shellcheck / テスト / 整形） |
-| `scripts/approve-if-verdict.sh`       | 判定行を読んで Approve を押す                         |
-| `tests/approve-if-verdict.test.sh`    | 上記の回帰テスト（`gh` をスタブに差し替えて走る）     |
-| `perspectives/`                       | レビュー観点（`common.md` + プロファイル）            |
+| パス                                  | 役割                                                           |
+| ------------------------------------- | -------------------------------------------------------------- |
+| `.github/workflows/review.yml`        | reusable workflow（本体）                                      |
+| `.github/workflows/claude-review.yml` | このリポジトリ自身の PR をレビューする呼び出し元               |
+| `.github/workflows/ci.yml`            | このリポジトリ自身の CI（shellcheck / テスト / 整形）          |
+| `.github/actions/issue-link-check/`   | Issue 紐づけ検査の composite action（判定は同梱の `check.sh`） |
+| `scripts/approve-if-verdict.sh`       | 判定行を読んで Approve を押す                                  |
+| `tests/*.test.sh`                     | 上記スクリプトの回帰テスト（外部依存なしで走る）               |
+| `perspectives/`                       | レビュー観点（`common.md` + プロファイル）                     |
 
 ## ローカルでの検査
 
@@ -146,6 +208,9 @@ SSOT は本節。`CLAUDE.md` の「検査」節からはここを参照する（
 
 ```bash
 git ls-files '*.sh' | xargs shellcheck
-bash tests/approve-if-verdict.test.sh
+for t in tests/*.test.sh; do bash "$t" || break; done
 npx prettier@3 --check .
 ```
+
+⚠ **CI（`ci.yml`）の回帰テストのステップは `tests/approve-if-verdict.test.sh` だけを名指しで実行する。**
+上の `for` は `tests/` のテストをすべて走らせるので、**手元の方が広く検査する**。
